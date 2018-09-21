@@ -20,6 +20,10 @@ rm -f /lib/systemd/system/sockets.target.wants/*initctl*; \
 rm -f /lib/systemd/system/basic.target.wants/*;\
 rm -f /lib/systemd/system/anaconda.target.wants/*;
 
+VOLUME [ "/sys/fs/cgroup" ]
+CMD ["/usr/sbin/init"]
+
+
 # These ARGs values are passed in via the docker build command
 ARG BUILD_DATE
 ARG VCS_REF
@@ -33,8 +37,10 @@ RUN useradd -c "KBase user" -rd /kb/deployment/ -u 998 -s /bin/bash kbase && \
     touch /kb/deployment/jettybase/logs/request.log && \
     chown -R kbase /kb/deployment
 
-RUN yum install -y wget which
+#INSTALL DEPENDENCIES
+RUN yum install -y wget which java-1.8.0-openjdk java-1.8.0-openjdk-devel
 
+#INSTALL DOCKERIZE
 RUN wget -N https://github.com/kbase/dockerize/raw/master/dockerize-linux-amd64-v0.6.1.tar.gz && tar xvzf dockerize-linux-amd64-v0.6.1.tar.gz && cp dockerize /kb/deployment/bin && rm dockerize*
 
 #COPY ROOT WAR AND FAT JAR
