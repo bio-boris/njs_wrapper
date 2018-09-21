@@ -1,11 +1,11 @@
 FROM centos:7 AS build
+# Multistage Build Setup
 RUN yum update -y && \
-yum install -y wget && \
+yum install -y wget git which && \
 yum install -y java-1.8.0-openjdk java-1.8.0-openjdk-devel && \
 yum clean all
 
-# Multistage Build Setup
-RUN yum install -y git which wget && cd / && git clone https://github.com/kbase/njs_wrapper && cd /njs_wrapper/ && ./gradlew buildAll
+RUN cd / && git clone https://github.com/kbase/njs_wrapper && cd /njs_wrapper/ && ./gradlew buildAll
 
 FROM centos:7
 # These ARGs values are passed in via the docker build command
@@ -21,6 +21,7 @@ RUN useradd -c "KBase user" -rd /kb/deployment/ -u 998 -s /bin/bash kbase && \
     touch /kb/deployment/jettybase/logs/request.log && \
     chown -R kbase /kb/deployment
 
+RUN yum install -y wget which
 
 RUN wget -N https://github.com/kbase/dockerize/raw/master/dockerize-linux-amd64-v0.6.1.tar.gz && tar xvzf dockerize-linux-amd64-v0.6.1.tar.gz && cp dockerize /kb/deployment/bin && rm dockerize*
 
@@ -29,9 +30,9 @@ COPY --from=build /njs_wrapper/dist/NJSWrapper.war /kb/deployment/jettybase/weba
 COPY --from=build /njs_wrapper/dist/NJSWrapper-all.jar /kb/deployment/lib/
 
 #MAKE KBASE USER AND ADD DIRS
-# RUN mkdir /etc/condor && mkdir -p /var/run/condor && mkdir -p var/log/condor && \
-# touch /var/log/condor/StartLog /var/log/condor/ProcLog && \
-# chown -R kbase:kbase /etc/condor /run/condor /var/lock/condor /var/log/condor /var/lib/condor/execute /var/log/condor/*
+RUN mkdir /etc/condor && mkdir -p /var/run/condor && mkdir -p var/log/condor && mkdir /run/condor/ && mkdir -p /var/lock/condor && mkdir /var/lib/condor/execute && \
+touch /var/log/condor/StartLog /var/log/condor/ProcLog && \
+chown -R kbase:kbase /etc/condor /run/condor /var/lock/condor /var/log/condor /var/lib/condor/execute /var/log/condor/*
 
 
 # Install docker binaries based on
@@ -64,9 +65,3 @@ CMD [ "-template", "/kb/deployment/conf/.templates/deployment.cfg.templ:/kb/depl
       "/kb/deployment/bin/start_server.sh" ]
 
 WORKDIR /kb/deployment/jettybase
-
-# for a NJS worker node use the following CMD in the docker-compose file
-#CMD [ "-template", "/kb/deployment/conf/.templates/condor_config.templ:/etc/condor/condor_config.local", \
-#      "-stdout", "/var/log/condor/ProcLog", \
-#      "-stdout", "/var/log/condor/StartLog", \
-#      "/kb/deployment/bin/start-condor.sh" ]
