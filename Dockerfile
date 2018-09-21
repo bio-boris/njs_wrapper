@@ -50,7 +50,7 @@ COPY --from=build /njs_wrapper/dist/NJSWrapper.war /kb/deployment/jettybase/weba
 COPY --from=build /njs_wrapper/dist/NJSWrapper-all.jar /kb/deployment/lib/
 
 #MAKE KBASE USER AND ADD DIRS
-RUN mkdir /etc/condor && mkdir -p /var/run/condor && mkdir -p /var/log/condor && mkdir -p /var/lock/condor && mkdir -p /var/lib/condor/execute && \
+RUN mkdir -p /var/run/condor && mkdir -p /var/log/condor && mkdir -p /var/lock/condor && mkdir -p /var/lib/condor/execute && \
 touch /var/log/condor/StartLog /var/log/condor/ProcLog && \
 chown -R kbase:kbase /etc/condor /run/condor /var/lock/condor /var/log/condor /var/lib/condor/execute /var/log/condor/*
 
