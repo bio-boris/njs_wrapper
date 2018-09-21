@@ -1,55 +1,46 @@
-FROM kbase/kb_jre AS build
-# Multistage Build Setup
-RUN apt-get -y update && apt-get -y install ant git openjdk-8-jdk make
-RUN cd / && git clone https://github.com/kbase/njs_wrapper && cd /njs_wrapper/ && ./gradlew buildAll 
+FROM centos:7 AS build
+RUN yum update -y && \
+yum install -y wget && \
+yum install -y java-1.8.0-openjdk java-1.8.0-openjdk-devel && \
+yum clean all
 
-FROM kbase/kb_jre
+# Multistage Build Setup
+RUN yum install -y git which wget && cd / && git clone https://github.com/kbase/njs_wrapper && cd /njs_wrapper/ && ./gradlew buildAll
+
+FROM centos:7
 # These ARGs values are passed in via the docker build command
 ARG BUILD_DATE
 ARG VCS_REF
 ARG BRANCH=develop
 
+USER root
+
+RUN useradd -c "KBase user" -rd /kb/deployment/ -u 998 -s /bin/bash kbase && \
+    mkdir -p /kb/deployment/bin && \
+    mkdir -p /kb/deployment/jettybase/logs/ && \
+    touch /kb/deployment/jettybase/logs/request.log && \
+    chown -R kbase /kb/deployment
+
+
+RUN wget -N https://github.com/kbase/dockerize/raw/master/dockerize-linux-amd64-v0.6.1.tar.gz && tar xvzf dockerize-linux-amd64-v0.6.1.tar.gz && cp dockerize /kb/deployment/bin && rm dockerize*
+
 #COPY ROOT WAR AND FAT JAR
 COPY --from=build /njs_wrapper/dist/NJSWrapper.war /kb/deployment/jettybase/webapps/root.war
 COPY --from=build /njs_wrapper/dist/NJSWrapper-all.jar /kb/deployment/lib/
 
-# The htcondor package tries an interactive config, set DEBIAN_FRONTEND to
-# noninteractive in order to prevent that
-RUN apt-get update && \
-    export DEBIAN_FRONTEND=noninteractive && \
-    apt-get install -y htcondor zile vim libgomp1 && \
-    chown -R kbase:kbase /etc/condor && \
-    mkdir /scratch && \
-    cd /tmp && \
-    wget http://submit-3.batlab.org/nmi-runs/condorauto/2018/03/condorauto_submit-3.batlab.org_1520871025_1539075/userdir/nmi:x86_64_Debian9/results.tar.gz && \
-    tar xvzf results.tar.gz && \
-    cd public && \
-    tar xvzf condor-8.6.10-x86_64_Debian9-stripped.tar.gz && \
-    cd condor-8.6.10-x86_64_Debian9-stripped && \
-    ./condor_install --prefix=/usr --type=submit --local-dir=/scratch/condor --owner=kbase --overwrite && \
-    cd /tmp && \
-    rm -rf results.tar.gz public && \
-    mkdir /var/run/condor && \
-    touch /var/log/condor/StartLog /var/log/condor/ProcLog && \
-    chown kbase /run/condor /var/lock/condor /var/log/condor /var/lib/condor/execute /var/log/condor/*
+#MAKE KBASE USER AND ADD DIRS
+# RUN mkdir /etc/condor && mkdir -p /var/run/condor && mkdir -p var/log/condor && \
+# touch /var/log/condor/StartLog /var/log/condor/ProcLog && \
+# chown -R kbase:kbase /etc/condor /run/condor /var/lock/condor /var/log/condor /var/lib/condor/execute /var/log/condor/*
+
 
 # Install docker binaries based on
-# https://docs.docker.com/install/linux/docker-ce/debian/#install-docker-ce
-# Also add the user to the groups that map to "docker" on Linux and "daemon" on
-# MacOS
-RUN apt-get install -y apt-transport-https software-properties-common && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add - && \
-    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable" && \
-    apt-get update && \
-    apt-get install -y docker-ce=18.03.0~ce-0~debian && \
-    usermod -a -G 0 kbase && \
-    usermod -a -G 999 kbase
+RUN yum install -y yum-utils device-mapper-persistent-data lvm2 && yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo && yum install -y docker-ce
+# Also add the user to the groups that map to "docker" on Linux and "daemon" on Mac
+RUN usermod -a -G 0 kbase && usermod -a -G 999 kbase
 
 USER kbase:999
 COPY --chown=kbase deployment/ /kb/deployment/
-
-# Extra all of the jars for NJS so that the scripts can use them in classpath
-#RUN cd /kb/deployment/lib && unzip /kb/deployment/jettybase/webapps/root.war
 
 ENV KB_DEPLOYMENT_CONFIG /kb/deployment/conf/deployment.cfg
 
