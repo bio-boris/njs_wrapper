@@ -10,37 +10,51 @@ RUN cd / && git clone https://github.com/kbase/njs_wrapper && cd /njs_wrapper/ &
 FROM centos:7
 ENV container docker
 
-RUN (cd /lib/systemd/system/sysinit.target.wants/; for i in *; do [ $i == \
-systemd-tmpfiles-setup.service ] || rm -f $i; done); \
-rm -f /lib/systemd/system/multi-user.target.wants/*;\
-rm -f /etc/systemd/system/*.wants/*;\
-rm -f /lib/systemd/system/local-fs.target.wants/*; \
-rm -f /lib/systemd/system/sockets.target.wants/*udev*; \
-rm -f /lib/systemd/system/sockets.target.wants/*initctl*; \
-rm -f /lib/systemd/system/basic.target.wants/*;\
-rm -f /lib/systemd/system/anaconda.target.wants/*;
-
-RUN yum -y update && yum -y install -y wget which git && cd /etc/yum.repos.d && wget http://research.cs.wisc.edu/htcondor/yum/repo.d/htcondor-development-rhel7.repo && wget http://research.cs.wisc.edu/htcondor/yum/repo.d/htcondor-stable-rhel6.repo && wget http://research.cs.wisc.edu/htcondor/yum/RPM-GPG-KEY-HTCondor && rpm --import RPM-GPG-KEY-HTCondor && yum -y install condor.x86_64
-
-VOLUME [ "/sys/fs/cgroup" ]
-CMD ["/usr/sbin/init"]
-
-
-# These ARGs values are passed in via the docker build command
-ARG BUILD_DATE
-ARG VCS_REF
-ARG BRANCH=develop
-
-USER root
-
+# Add kbase user and set up directories
 RUN useradd -c "KBase user" -rd /kb/deployment/ -u 998 -s /bin/bash kbase && \
     mkdir -p /kb/deployment/bin && \
     mkdir -p /kb/deployment/jettybase/logs/ && \
     touch /kb/deployment/jettybase/logs/request.log && \
     chown -R kbase /kb/deployment
 
-#INSTALL DEPENDENCIES
-RUN yum install -y wget which java-1.8.0-openjdk java-1.8.0-openjdk-devel
+# Get commonly used utilities
+RUN yum -y update && yum -y install -y wget which git deltarpm
+
+# Install Condor
+RUN cd /etc/yum.repos.d && \
+wget http://research.cs.wisc.edu/htcondor/yum/repo.d/htcondor-development-rhel7.repo && \
+wget http://research.cs.wisc.edu/htcondor/yum/repo.d/htcondor-stable-rhel6.repo && \
+wget http://research.cs.wisc.edu/htcondor/yum/RPM-GPG-KEY-HTCondor && \
+rpm --import RPM-GPG-KEY-HTCondor && \
+yum -y install condor.x86_64
+
+# Install java
+RUN yum install -y java-1.8.0-openjdk java-1.8.0-openjdk-devel 
+
+# Add Jetty User
+RUN groupadd -r jetty && useradd -r -g jetty jetty
+ENV JETTY_VERSION 9.4.12.v20180830
+
+# Install Jetty
+RUN curl http://repo1.maven.org/maven2/org/eclipse/jetty/jetty-distribution/${JETTY_VERSION}/jetty-distribution-${JETTY_VERSION}.tar.gz -o /tmp/jetty.tar.gz \
+ && cd /opt && tar zxvf /tmp/jetty.tar.gz \
+ && ln -s /opt/jetty-distribution-${JETTY_VERSION} /opt/jetty \
+ && chown -R jetty /opt/jetty /opt/jetty-distribution-${JETTY_VERSION} \
+ && usermod -g root -G jetty jetty \
+ && chmod -R "g+rwX" /opt/jetty /opt/jetty-distribution-${JETTY_VERSION} \
+ && rm /tmp/jetty.tar.gz
+
+ENV JETTY_HOME /opt/jetty
+ENV PATH $PATH:$JETTY_HOME/bin
+
+# Mount for cgroups
+VOLUME [ "/sys/fs/cgroup" ]
+
+# These ARGs values are passed in via the docker build command
+ARG BUILD_DATE
+ARG VCS_REF
+ARG BRANCH=develop
+
 
 #INSTALL DOCKERIZE
 RUN wget -N https://github.com/kbase/dockerize/raw/master/dockerize-linux-amd64-v0.6.1.tar.gz && tar xvzf dockerize-linux-amd64-v0.6.1.tar.gz && cp dockerize /kb/deployment/bin && rm dockerize*
@@ -49,19 +63,25 @@ RUN wget -N https://github.com/kbase/dockerize/raw/master/dockerize-linux-amd64-
 COPY --from=build /njs_wrapper/dist/NJSWrapper.war /kb/deployment/jettybase/webapps/root.war
 COPY --from=build /njs_wrapper/dist/NJSWrapper-all.jar /kb/deployment/lib/
 
-#MAKE KBASE USER AND ADD DIRS
-RUN mkdir -p /var/run/condor && mkdir -p /var/log/condor && mkdir -p /var/lock/condor && mkdir -p /var/lib/condor/execute && \
-touch /var/log/condor/StartLog /var/log/condor/ProcLog && \
-chown -R kbase:kbase /etc/condor /run/condor /var/lock/condor /var/log/condor /var/lib/condor/execute /var/log/condor/*
-
-
-# Install docker binaries based on
+# Install docker binaries (setsebool:  SELinux is disabled. libsemanage.semanage_commit_sandbox: Error while renaming /etc/selinux/targeted/active to /etc/selinux/targeted/previous. (Invalid cross-device link).)
 RUN yum install -y yum-utils device-mapper-persistent-data lvm2 && yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo && yum install -y docker-ce
 # Also add the user to the groups that map to "docker" on Linux and "daemon" on Mac
 RUN usermod -a -G 0 kbase && usermod -a -G 999 kbase
 
+# Maybe you want: rm -rf /var/cache/yum, to also free up space taken by orphaned data from disabled or removed repos
+# RUN rm -rf /var/cache/yum
+
+
+
+
+#ADD DIRS
+RUN mkdir -p /var/run/condor && mkdir -p /var/log/condor && mkdir -p /var/lock/condor && mkdir -p /var/lib/condor/execute
+RUN touch /var/log/condor/StartLog /var/log/condor/ProcLog && chmod 775 /var/log/condor/* 
+RUN chown -R kbase:kbase /etc/condor /run/condor /var/lock/condor /var/log/condor /var/lib/condor/execute /var/log/condor/StartLog /var/log/condor/ProcLog
+
 USER kbase:999
 COPY --chown=kbase deployment/ /kb/deployment/
+
 
 ENV KB_DEPLOYMENT_CONFIG /kb/deployment/conf/deployment.cfg
 
