@@ -7,3 +7,5 @@ Service for execution of Narrative Methods and Apps as well as async SDK jobs in
    with go 1.6, so the go version must be 1.5.X or lower.
 3. make
 4. make test
+
+TEST
